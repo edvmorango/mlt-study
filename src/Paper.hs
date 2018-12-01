@@ -33,7 +33,11 @@ data Value
   deriving (Show)
 
 -- Expressions
-invalidExpression = error "not impl"
+invalidExpression = Lit 12 `Plus` (App (Abs "x" (Var "y")) (Lit 4 `Plus` Lit 2))
+
+invalidExpressionPlus = Plus (Lit 1) (Abs "x" (Var "x"))
+
+invalidExpressionApp = App (Lit 6) (Abs "x" (Var "x"))
 
 -- 12 + App (Abs "x" (Var "x")) 6
 -- 12 + App (FunVal "x" (Var "x")) 6
@@ -80,3 +84,41 @@ evalId env (App e1 e2) = do
   v2 <- evalId env e2
   case v1 of
     FunVal _ nm body -> evalId (M.insert nm v2 env) body
+
+-- ErrorT parser a.k.a. eval2
+type EvalErrorT a = ErrorT String Identity a
+
+runEvalErrorT :: EvalErrorT a -> Either String a
+runEvalErrorT ev = runIdentity $ runErrorT ev
+
+maybeToEither :: Maybe a -> Either String a
+maybeToEither (Just a) = Right a
+maybeToEither _ = Left "Empty value"
+
+evalErrorT :: Env -> Exp -> EvalErrorT Value
+evalErrorT env (Lit i) = return $ IntVal i
+evalErrorT env (Var n) = do
+  let a = (M.lookup n env)
+   in case a of
+        (Just v) -> return v
+        Nothing -> throwError $ ("Couldn't find " ++ n)
+--evalErrorT env (Plus e1 e2) = do
+--  v1 <- evalErrorT env e1
+--  v2 <- evalErrorT env e2
+--  case (v1, v2) of
+--    (IntVal v1', IntVal v2') -> return $ IntVal (v1' + v2')
+--    _ -> throwError "Invalid expression"
+evalErrorT env (Plus e1 e2) = do
+  IntVal v1 <- evalErrorT env e1
+  IntVal v2 <- evalErrorT env e2
+  return $ IntVal (v1 + v2)
+evalErrorT env (Abs nm exp) = return $ FunVal env nm exp
+evalErrorT env (App e1 e2)
+        -- v1 <- evalErrorT env e1
+ = do
+  FunVal _ nm body <- evalErrorT env e1
+  v2 <- evalErrorT env e2
+--  case v1 of
+--    FunVal _ nm body -> evalErrorT (M.insert nm v2 env) body
+--   _ -> throwError $ (show e1) ++ " is not a function"
+  evalErrorT (M.insert nm v2 env) body
