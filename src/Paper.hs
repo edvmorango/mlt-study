@@ -43,20 +43,40 @@ invalidExpression = error "not impl"
 -- 18
 validExpression = Lit 12 `Plus` (App (Abs "x" (Var "x")) (Lit 4 `Plus` Lit 2))
 
--- Reference parser  a.k.a eval0
+-- Reference parser  a.k.a. eval0
 evalRef :: Env -> Exp -> Value
 evalRef env (Lit i) = IntVal i
 evalRef env (Var n) = fromJust (M.lookup n env) -- Carries an unhandled effect
 evalRef env (Plus exp1 exp2) =
   let IntVal v1 = evalRef env exp1
-      IntVal v2 = evalRef env exp2
+      IntVal v2 = evalRef env exp2 -- Error when expressions aren't IntVal
    in IntVal (v1 + v2)
 evalRef env (Abs nm exp) = FunVal env nm exp -- Means function application (not evaluation) ((\x -> x)(6)) 
 evalRef env (App exp1 exp2) =
   let v1 = evalRef env exp1
       v2 = evalRef env exp2
    in case v1
---      _ -> Unhandled possibilities
         -- function application binds the value to the environment before evaluate.
             of
         FunVal _ nm body -> evalRef (M.insert nm v2 env) body
+        _ -> error "unhandled effect"
+
+-- Identity Parser a.k.a. eval1
+type EvalId a = Identity a
+
+runEvalId :: EvalId a -> a
+runEvalId a = runIdentity a
+
+evalId :: Env -> Exp -> EvalId Value
+evalId env (Lit i) = return $ IntVal i
+evalId env (Var n) = return $ fromJust (M.lookup n env) -- M.lookup signature is binded to Maybe not to (Monad m) => ...
+evalId env (Plus e1 e2) = do
+  IntVal v1 <- evalId env e1
+  IntVal v2 <- evalId env e2
+  return $ IntVal (v1 + v2)
+evalId env (Abs nm exp) = return $ FunVal env nm exp
+evalId env (App e1 e2) = do
+  v1 <- evalId env e1
+  v2 <- evalId env e2
+  case v1 of
+    FunVal _ nm body -> evalId (M.insert nm v2 env) body
