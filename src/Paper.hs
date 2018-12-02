@@ -157,4 +157,43 @@ evalReaderErrorT (App e1 e2) = do
   case v1 of
     (FunVal env nm body) ->
       local (const (M.insert nm v2 env)) (evalReaderErrorT body)
-    _ -> throwError $ "`" ++ (show v1) ++ "` is not a expression"
+    _ -> throwError $ "`" ++ (show v1) ++ "` is not a function"
+
+-- ReaderT embedding ErrorT and StateT a.k.a eval4
+type EvalREST a = ReaderT Env (ErrorT String (StateT Integer Identity)) a
+
+runEvalREST :: Env -> Integer -> EvalREST a -> (Either String a, Integer)
+runEvalREST env state comp =
+  runIdentity $ runStateT (runErrorT (runReaderT comp env)) state
+
+tick :: (Num s, MonadState s m) => m ()
+tick = do
+  st <- get
+  put (st + 1)
+
+evalREST :: Exp -> EvalREST Value
+evalREST (Lit i) = do
+  tick
+  return $ IntVal i
+evalREST (Var n) = do
+  tick
+  env <- ask
+  case (M.lookup n env) of
+    (Just a) -> return a
+    _ -> throwError $ ("Couldn't find `" ++ n ++ "`")
+evalREST (Plus e1 e2) = do
+  tick
+  IntVal v1 <- evalREST e1
+  IntVal v2 <- evalREST e2
+  return $ IntVal (v1 + v2)
+evalREST (Abs nm exp) = do
+  tick
+  env <- ask
+  return $ FunVal env nm exp
+evalREST (App e1 e2) = do
+  tick
+  v1 <- evalREST e1
+  v2 <- evalREST e2
+  case v1 of
+    FunVal env nm body -> local (const (M.insert nm v2 env)) (evalREST body)
+    _ -> throwError $ "`" ++ (show e1) ++ "` is not a function"
