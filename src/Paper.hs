@@ -234,3 +234,41 @@ evalRESWT (App e1 e2) = do
   case v1 of
     FunVal env nm body -> local (const (M.insert nm v2 env)) (evalRESWT body)
     _ -> throwError $ "`" ++ (show e1) ++ "` is not a function"
+
+-- ReaderT + ErrorT + StateT + WriterT with IO as innermost  a.k.a eval6
+type EvalIO a
+   = ReaderT Env (ErrorT String (WriterT [String] (StateT Integer IO))) a
+
+runEvalIO ::
+     Env -> Integer -> EvalIO a -> IO ((Either String a, [String]), Integer)
+runEvalIO env state comp =
+  runStateT (runWriterT (runErrorT (runReaderT comp env))) state
+
+evalIO :: Exp -> EvalIO Value
+evalIO (Lit i) = do
+  _ <- tick
+  _ <- liftIO $ print i
+  return $ IntVal i
+evalIO (Var n) = do
+  _ <- tick
+  _ <- tell [n]
+  env <- ask
+  case (M.lookup n env) of
+    (Just a) -> return a
+    _ -> throwError $ "Couldn't find " ++ n
+evalIO (Plus e1 e2) = do
+  _ <- tick
+  IntVal v1 <- evalIO e1
+  IntVal v2 <- evalIO e2
+  return $ IntVal (v1 + v2)
+evalIO (Abs nm exp) = do
+  _ <- tick
+  env <- ask
+  return $ FunVal env nm exp
+evalIO (App e1 e2) = do
+  _ <- tick
+  v1 <- evalIO e1
+  v2 <- evalIO e2
+  case v1 of
+    FunVal env nm body -> local (const (M.insert nm v2 env)) (evalIO body)
+    _ -> throwError $ "`" ++ (show e1) ++ "` is not a function"
