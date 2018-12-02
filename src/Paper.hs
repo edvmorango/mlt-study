@@ -173,7 +173,7 @@ tick = do
 
 evalREST :: Exp -> EvalREST Value
 evalREST (Lit i) = do
-  tick
+  _ <- tick
   return $ IntVal i
 evalREST (Var n) = do
   tick
@@ -182,18 +182,55 @@ evalREST (Var n) = do
     (Just a) -> return a
     _ -> throwError $ ("Couldn't find `" ++ n ++ "`")
 evalREST (Plus e1 e2) = do
-  tick
+  _ <- tick
   IntVal v1 <- evalREST e1
   IntVal v2 <- evalREST e2
   return $ IntVal (v1 + v2)
 evalREST (Abs nm exp) = do
-  tick
+  _ <- tick
   env <- ask
   return $ FunVal env nm exp
 evalREST (App e1 e2) = do
-  tick
+  _ <- tick
   v1 <- evalREST e1
   v2 <- evalREST e2
   case v1 of
     FunVal env nm body -> local (const (M.insert nm v2 env)) (evalREST body)
+    _ -> throwError $ "`" ++ (show e1) ++ "` is not a function"
+
+-- ReaderT + ErrorT + StateT + WriterT a.k.a eval5
+type EvalRESWT a
+   = ReaderT Env (ErrorT String (WriterT [String] (StateT Integer Identity))) a
+
+runEvalRESWT ::
+     Env -> Integer -> EvalRESWT a -> ((Either String a, [String]), Integer)
+runEvalRESWT env state comp =
+  runIdentity $ runStateT (runWriterT (runErrorT (runReaderT comp env))) state
+
+evalRESWT :: Exp -> EvalRESWT Value
+evalRESWT (Lit i) = do
+  _ <- tick
+  return $ IntVal i
+evalRESWT (Var n) = do
+  _ <- tick
+  _ <- tell [n]
+  env <- ask
+  case (M.lookup n env) of
+    (Just a) -> return a
+    _ -> throwError $ "Couldn't find " ++ n
+evalRESWT (Plus e1 e2) = do
+  _ <- tick
+  IntVal v1 <- evalRESWT e1
+  IntVal v2 <- evalRESWT e2
+  return $ IntVal (v1 + v2)
+evalRESWT (Abs nm exp) = do
+  _ <- tick
+  env <- ask
+  return $ FunVal env nm exp
+evalRESWT (App e1 e2) = do
+  _ <- tick
+  v1 <- evalRESWT e1
+  v2 <- evalRESWT e2
+  case v1 of
+    FunVal env nm body -> local (const (M.insert nm v2 env)) (evalRESWT body)
     _ -> throwError $ "`" ++ (show e1) ++ "` is not a function"
