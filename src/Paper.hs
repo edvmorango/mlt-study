@@ -86,6 +86,12 @@ evalId env (App e1 e2) = do
     FunVal _ nm body -> evalId (M.insert nm v2 env) body
 
 -- ErrorT parser a.k.a. eval2
+-- where Error e (m :: * -> * ) a 
+-- e :: Error
+-- m :: Innermost monad
+-- a :: kind of innermost monad
+-- Error String Identity a
+-- Error    e      m     a
 type EvalErrorT a = ErrorT String Identity a
 
 runEvalErrorT :: EvalErrorT a -> Either String a
@@ -118,7 +124,37 @@ evalErrorT env (App e1 e2)
  = do
   FunVal _ nm body <- evalErrorT env e1
   v2 <- evalErrorT env e2
+  evalErrorT (M.insert nm v2 env) body
+
 --  case v1 of
 --    FunVal _ nm body -> evalErrorT (M.insert nm v2 env) body
 --   _ -> throwError $ (show e1) ++ " is not a function"
-  evalErrorT (M.insert nm v2 env) body
+-- ReaderT embedding ErrorT a.k.a. eval3
+-- where a provides kind to Identity
+type EvalReaderErrorT a = ReaderT Env (ErrorT String Identity) a
+
+runEvalReaderErrorT :: Env -> EvalReaderErrorT a -> Either String a
+runEvalReaderErrorT env comp = runIdentity $ runErrorT $ runReaderT comp env
+
+evalReaderErrorT :: Exp -> EvalReaderErrorT Value
+evalReaderErrorT (Lit i) = return $ IntVal i
+evalReaderErrorT (Var n) = do
+  env <- ask
+  case (M.lookup n env) of
+    (Just a) -> return a
+    _ -> throwError $ ("Couldn't find `" ++ n ++ "`")
+-- Without customized error message
+evalReaderErrorT (Plus e1 e2) = do
+  IntVal v1 <- evalReaderErrorT e1
+  IntVal v2 <- evalReaderErrorT e2
+  return $ IntVal (v1 + v2)
+evalReaderErrorT (Abs nm exp) = do
+  env <- ask
+  return $ FunVal env nm exp
+evalReaderErrorT (App e1 e2) = do
+  v1 <- evalReaderErrorT e1
+  v2 <- evalReaderErrorT e2
+  case v1 of
+    (FunVal env nm body) ->
+      local (const (M.insert nm v2 env)) (evalReaderErrorT body)
+    _ -> throwError $ "`" ++ (show v1) ++ "` is not a expression"
